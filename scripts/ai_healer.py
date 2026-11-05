@@ -4,37 +4,42 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 
-def fetch_failed_logs(repo: str, run_id: str, headers: dict) -> str:
-    """Fetch terminal error logs from the failed workflow run's jobs."""
+def fetch_failed_logs(repo: str, run_id: str, headers: dict) -> Tuple[str, str]:
+    """
+    Fetch terminal error logs from the failed workflow run's jobs.
+    Returns (failed_job_name, combined_logs).
+    """
     jobs_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/jobs"
     print(f"Fetching job logs for run #{run_id}...")
+    failed_job_name = "test-pipeline"
     try:
         res = httpx.get(jobs_url, headers=headers)
         if res.status_code != 200:
             print(f"⚠️ Could not fetch jobs: {res.status_code} {res.text}")
-            return ""
+            return failed_job_name, ""
 
         jobs = res.json().get("jobs", [])
         combined_logs = []
 
         for job in jobs:
             if job.get("conclusion") == "failure":
+                failed_job_name = job.get("name", "test-pipeline")
                 job_id = job["id"]
                 log_url = f"https://api.github.com/repos/{repo}/actions/jobs/{job_id}/logs"
                 log_res = httpx.get(log_url, headers=headers, follow_redirects=True)
                 if log_res.status_code == 200:
                     lines = log_res.text.splitlines()
                     tail_lines = lines[-200:] if len(lines) > 200 else lines
-                    combined_logs.append(f"--- FAILED JOB: {job.get('name')} ---\n" + "\n".join(tail_lines))
+                    combined_logs.append(f"--- FAILED JOB: {failed_job_name} ---\n" + "\n".join(tail_lines))
 
-        return "\n\n".join(combined_logs)
+        return failed_job_name, "\n\n".join(combined_logs)
     except Exception as e:
         print(f"⚠️ Error fetching logs: {e}")
-        return ""
+        return failed_job_name, ""
 
 
 def get_repo_context() -> Dict[str, str]:

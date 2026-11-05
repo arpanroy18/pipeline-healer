@@ -1,8 +1,11 @@
 import os
+from datetime import datetime
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Optional, Tuple
+from zoneinfo import ZoneInfo
 
 # Ensure repository root and script directory are in sys.path
 repo_root = Path(__file__).resolve().parent.parent
@@ -23,6 +26,18 @@ def get_headers(token: str) -> dict:
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+
+
+def generate_branch_name(job_name: str) -> str:
+    """Generate branch name in format: fix/<job_name>-<datetime_in_est>"""
+    slug = re.sub(r"[^a-zA-Z0-9_\-]+", "-", job_name.lower()).strip("-")
+    try:
+        est_now = datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        from datetime import timezone, timedelta
+        est_now = datetime.now(timezone(timedelta(hours=-5)))
+    dt_str = est_now.strftime("%Y-%m-%d_%H-%M-%S_est")
+    return f"fix/{slug}-{dt_str}"
 
 
 def rerun_workflow(repo: str, run_id: str, headers: dict) -> bool:
@@ -174,23 +189,25 @@ def main():
     print(f"\n🚨 Attempt {run_attempt} failed: Retry did not succeed.")
     print("Initiating autonomous AI diagnosis and repair...")
 
-    branch_name = f"watchdog/fix-run-{run_id}"
+    # Step 1: Fetch failure logs and determine failed job name
+    failed_job_name, logs = fetch_failed_logs(repo, run_id, headers)
 
-    # Step 1: Create remote branch if it doesn't exist
+    # Step 2: Generate branch name: fix/<job_name>-<datetime_in_est>
+    branch_name = generate_branch_name(failed_job_name)
+    print(f"🌿 Repair branch: {branch_name}")
+
+    # Step 3: Create remote branch if it doesn't exist
     create_branch_ref(repo, branch_name, head_sha, headers)
 
-    # Step 2: Fetch and switch to the repair branch locally
+    # Step 4: Fetch and switch to the repair branch locally
     print(f"Checking out repair branch '{branch_name}'...")
     subprocess.run(["git", "fetch", "origin", f"{branch_name}:{branch_name}"], check=False)
     subprocess.run(["git", "checkout", branch_name], check=True)
 
-    # Step 3: Fetch failure logs
-    logs = fetch_failed_logs(repo, run_id, headers)
-
-    # Step 4: Gather repository context
+    # Step 5: Gather repository context
     context = get_repo_context()
 
-    # Step 5: Diagnose with DeepSeek AI
+    # Step 6: Diagnose with DeepSeek AI
     print("\n🧠 Analyzing failure logs and repository code with DeepSeek...")
     diagnosis = diagnose_and_fix(logs, context)
     summary = diagnosis.get("summary", "AI automated fix applied")
