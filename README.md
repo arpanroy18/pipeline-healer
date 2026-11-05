@@ -17,19 +17,19 @@ An autonomous CI/CD self-healing watchdog for GitHub Actions. When a workflow fa
    └── Watchdog detects: "This is a real code failure, not a flaky glitch."
    └── Action: Initiates autonomous AI repair in the Watchdog runner.
 
-[ Step 3: DeepSeek AI Diagnosis & Local Verification ]
+[ Step 3: DeepSeek AI Diagnosis & Fix Push ]
    └── Auto-Healer creates the branch: `fix/<job-name>-<datetime_in_est>`
    └── Fetches terminal error logs from the failed job via GitHub API.
    └── Reads repository files to build context for DeepSeek AI (`deepseek-chat`).
    └── DeepSeek diagnoses the root cause and generates the exact code patch.
-   └── Auto-Healer applies the patch and runs validation tests locally in the runner.
+   └── Auto-Healer applies the patch and pushes to `fix/<job-name>-<datetime_in_est>`.
 
-[ Step 4: Branch Push & Automated Pull Request ]
-   └── If local tests pass:
-         ├── Commits and pushes the fix to `fix/<job-name>-<datetime_in_est>`.
+[ Step 4: Strict Cloud Wait & Automated Pull Request ]
+   └── Auto-Healer waits and polls GitHub Actions until the cloud runner on that branch finishes.
+   └── If cloud run SUCCEEDS (conclusion: success):
          └── Automatically opens a Pull Request into `main`!
-   └── If local tests fail:
-         └── Aborts to prevent pushing broken code.
+   └── If cloud run FAILS:
+         └── Aborts to prevent pushing broken PRs.
 ```
 
 ---

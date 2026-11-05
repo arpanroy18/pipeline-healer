@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -103,6 +104,56 @@ def run_validation_tests() -> Tuple[bool, str]:
             return False, f"Failed to execute test runner: {e}"
 
     return True, "All validation checks passed."
+
+
+def wait_for_cloud_workflow(repo: str, branch_name: str, head_sha: str, headers: dict, timeout_seconds: int = 300) -> Tuple[bool, Optional[str]]:
+    """
+    Option B (Strict Cloud Wait):
+    Polls GitHub Actions API until the cloud workflow triggered on branch_name finishes
+    with status: completed, conclusion: success.
+    """
+    print(f"\n⏳ Option B Active: Waiting for GitHub Actions cloud run on '{branch_name}' (commit {head_sha[:7]})...")
+    start_time = time.time()
+    seen_run_id = None
+
+    while time.time() - start_time < timeout_seconds:
+        try:
+            # Query runs for this commit SHA
+            url = f"https://api.github.com/repos/{repo}/actions/runs?head_sha={head_sha}"
+            res = httpx.get(url, headers=headers)
+            if res.status_code == 200:
+                runs = res.json().get("workflow_runs", [])
+                # Look for Test Pipeline run on the repair branch
+                matching_runs = [
+                    r for r in runs
+                    if r.get("head_branch") == branch_name or r.get("name") == "Test Pipeline"
+                ]
+
+                if matching_runs:
+                    run_data = matching_runs[0]
+                    seen_run_id = run_data["id"]
+                    status = run_data.get("status")
+                    conclusion = run_data.get("conclusion")
+                    html_url = run_data.get("html_url")
+
+                    if status == "completed":
+                        if conclusion == "success":
+                            print(f"✅ Cloud run #{seen_run_id} SUCCEEDED! ({html_url})")
+                            return True, html_url
+                        else:
+                            print(f"❌ Cloud run #{seen_run_id} FAILED with conclusion: {conclusion} ({html_url})")
+                            return False, html_url
+                    else:
+                        print(f"🔄 Cloud run #{seen_run_id} is currently '{status}'... waiting 10s")
+                else:
+                    print("⌛ Waiting for GitHub to register the cloud run for this push...")
+        except Exception as e:
+            print(f"⚠️ Error while polling cloud run: {e}")
+
+        time.sleep(10)
+
+    print(f"❌ Timed out after {timeout_seconds}s waiting for cloud workflow to finish.")
+    return False, None
 
 
 def create_pull_request(repo: str, head_branch: str, base_branch: str, title: str, body: str, headers: dict) -> Optional[str]:
@@ -229,8 +280,15 @@ def main():
 
     # Step 8: Commit and push the verified fix to the repair branch
     commit_and_push_fix(branch_name, summary, token, repo, title=failed_job_name)
+    pushed_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
-    # Step 9: Open the Pull Request into main right here in this job!
+    # Step 9: Option B (Strict Cloud Wait): Wait for GitHub Actions cloud run to finish with success!
+    cloud_success, cloud_url = wait_for_cloud_workflow(repo, branch_name, pushed_sha, headers)
+    if not cloud_success:
+        print("\n❌ Aborting Pull Request creation: The cloud workflow run did not succeed.")
+        sys.exit(1)
+
+    # Step 10: Open the Pull Request into main ONLY after cloud run passed!
     pr_title = failed_job_name
     pr_body = (
         f"## 🐕 AI-Powered Watchdog Auto-Repair\n\n"
@@ -238,17 +296,18 @@ def main():
         f"- **Failed Run ID**: `#{run_id}`\n"
         f"- **Diagnosis**: {summary}\n"
         f"- **Repair Branch**: `{branch_name}`\n"
-        f"- **Validation**: ✅ Tests were executed and passed locally in the Watchdog runner.\n\n"
+        f"- **Cloud Run Verification**: ✅ [GitHub Actions Cloud Run Succeeded]({cloud_url})\n\n"
         f"### What Happened\n"
         f"1. A failure was detected in `Test Pipeline` on `main`.\n"
         f"2. Watchdog automatically retriggered once to verify flakiness.\n"
         f"3. When attempt 2 failed, DeepSeek AI analyzed the error logs and repository code.\n"
-        f"4. The AI fix was applied, validated against the test suite, committed to `{branch_name}`, and filed as this PR.\n\n"
+        f"4. The AI fix was applied, pushed to `{branch_name}`, and verified via GitHub Actions.\n"
+        f"5. The cloud workflow turned GREEN before this PR was filed.\n\n"
         f"*Ready for review and merge.*"
     )
     pr_url = create_pull_request(repo, branch_name, "main", pr_title, pr_body, headers)
     if pr_url:
-        print(f"\n🎉 Everything completed in this Auto-Healer run! PR is ready: {pr_url}")
+        print(f"\n🎉 Everything verified in the cloud! PR is ready: {pr_url}")
 
 
 if __name__ == "__main__":
