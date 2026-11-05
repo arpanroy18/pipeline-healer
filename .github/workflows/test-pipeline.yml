@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - 'watchdog/**'
   pull_request:
     branches:
       - main

@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Optional
+from typing import Optional, Tuple
 
 # Ensure repository root and script directory are in sys.path
 repo_root = Path(__file__).resolve().parent.parent
@@ -61,6 +61,35 @@ def create_branch_ref(repo: str, branch_name: str, sha: str, headers: dict) -> b
         return False
 
 
+def run_validation_tests() -> Tuple[bool, str]:
+    """
+    Run local tests directly inside this runner to verify the AI's fix before pushing.
+    """
+    print("\n🧪 Running validation tests directly in this runner...")
+
+    # 1. Check if .fail_ci trigger file still exists
+    if os.path.exists(".fail_ci"):
+        return False, "Validation failed: .fail_ci still exists in repository."
+
+    # 2. Run Python unittest suite if tests directory exists
+    if os.path.isdir("tests"):
+        try:
+            res = subprocess.run(
+                [sys.executable, "-m", "unittest", "discover", "tests"],
+                capture_output=True,
+                text=True
+            )
+            print(res.stdout)
+            if res.stderr:
+                print(res.stderr)
+            if res.returncode != 0:
+                return False, f"Unit tests failed with code {res.returncode}:\n{res.stderr}\n{res.stdout}"
+        except Exception as e:
+            return False, f"Failed to execute test runner: {e}"
+
+    return True, "All validation checks passed."
+
+
 def create_pull_request(repo: str, head_branch: str, base_branch: str, title: str, body: str, headers: dict) -> Optional[str]:
     """Create a Pull Request into base_branch if one does not already exist."""
     pulls_url = f"https://api.github.com/repos/{repo}/pulls"
@@ -85,7 +114,7 @@ def create_pull_request(repo: str, head_branch: str, base_branch: str, title: st
         "base": base_branch,
         "body": body,
     }
-    print(f"Opening Pull Request from '{head_branch}' into '{base_branch}'...")
+    print(f"\n📬 Opening Pull Request from '{head_branch}' into '{base_branch}'...")
     try:
         res = httpx.post(pulls_url, headers=headers, json=payload)
         if res.status_code == 201:
@@ -123,55 +152,25 @@ def main():
     print(f"📊 Conclusion:    {conclusion}")
     print("==================================================")
 
+    # We only heal failures on main
+    if conclusion != "failure" or head_branch != "main":
+        print(f"Nothing to heal (conclusion={conclusion}, branch={head_branch}). Exiting.")
+        return
+
     headers = get_headers(token)
 
     # -------------------------------------------------------------
-    # CASE 1: Test Pipeline SUCCEEDED
+    # STAGE 1 (Attempt 1): Retrigger workflow run once
     # -------------------------------------------------------------
-    if conclusion == "success":
-        # If success happened on a watchdog repair branch, create the Pull Request!
-        if head_branch.startswith("watchdog/"):
-            print(f"\n🎉 SUCCESS DETECTED on repair branch '{head_branch}'!")
-            print("The AI repair successfully passed all CI pipeline checks.")
-            print("Creating a Pull Request to merge the fix into 'main'...")
-
-            pr_title = f"fix(watchdog): Automated repair for CI failure ({head_branch})"
-            pr_body = (
-                f"## 🐕 AI-Powered Watchdog Auto-Repair\n\n"
-                f"### Summary\n"
-                f"- **Failed Run ID**: `#{run_id}`\n"
-                f"- **Repair Branch**: `{head_branch}`\n"
-                f"- **Status**: ✅ All CI tests have passed successfully on this repair branch.\n\n"
-                f"### What Happened\n"
-                f"1. A failure was detected in `Test Pipeline` on `main`.\n"
-                f"2. Watchdog automatically retriggered once to verify flakiness.\n"
-                f"3. Upon repeated failure, the AI Watchdog generated a code fix, committed to this branch, and triggered CI.\n"
-                f"4. The repair branch passed all checks and is ready for review/merge.\n\n"
-                f"*Automated by Pipeline Healer.*"
-            )
-            create_pull_request(repo, head_branch, "main", pr_title, pr_body, headers)
-        else:
-            print(f"✅ Workflow succeeded on '{head_branch}'. Nothing to heal.")
-        return
-
-    # -------------------------------------------------------------
-    # CASE 2: Test Pipeline FAILED
-    # -------------------------------------------------------------
-    # Loop protection: If failure is on a watchdog repair branch, stop to avoid infinite loops
-    if head_branch.startswith("watchdog/"):
-        print(f"\n⚠️ Workflow failed on watchdog repair branch '{head_branch}'.")
-        print("Stopping further automated repairs to prevent infinite loops.")
-        print("Human intervention required for this failure.")
-        return
-
-    # Attempt 1: Retrigger workflow run once to check for flakiness
     if run_attempt == 1:
         print("\n👉 Attempt 1 failed: Retriggering workflow run once to check for flaky issues...")
-        print("AI repair branch will only be created if the retrigger also fails.")
+        print("AI diagnosis and branch will only run if the retrigger also fails.")
         rerun_workflow(repo, run_id, headers)
         return
 
-    # Attempt >= 2: Retrigger failed again! Run AI Repair
+    # -------------------------------------------------------------
+    # STAGE 2 (Attempt >= 2): Retrigger failed again! AI Auto-Repair
+    # -------------------------------------------------------------
     print(f"\n🚨 Attempt {run_attempt} failed: Retry did not succeed.")
     print("Initiating autonomous AI diagnosis and repair...")
 
@@ -191,22 +190,48 @@ def main():
     # Step 4: Gather repository context
     context = get_repo_context()
 
-    # Step 5: Diagnose with AI
-    print("🧠 Analyzing failure logs and repository code...")
+    # Step 5: Diagnose with DeepSeek AI
+    print("\n🧠 Analyzing failure logs and repository code with DeepSeek...")
     diagnosis = diagnose_and_fix(logs, context)
     summary = diagnosis.get("summary", "AI automated fix applied")
     edits = diagnosis.get("edits", [])
     print(f"💡 AI Diagnosis: {summary}")
     print(f"📋 Generated {len(edits)} file edit(s).")
 
-    # Step 6: Apply edits
+    # Step 6: Apply edits to the workspace
     apply_edits(edits)
 
-    # Step 7: Commit and push fix to the repair branch
+    # Step 7: Validate tests directly in this runner
+    passed, test_output = run_validation_tests()
+    if not passed:
+        print(f"\n❌ Local validation failed: {test_output}")
+        print("Aborting push and PR creation because tests are still failing.")
+        sys.exit(1)
+
+    print("\n✅ Local validation passed! All tests succeeded on the repaired code.")
+
+    # Step 8: Commit and push the verified fix to the repair branch
     commit_and_push_fix(branch_name, summary, token, repo)
-    print(f"\n🚀 Repair pushed to '{branch_name}'.")
-    print(f"GitHub Actions will now run CI against '{branch_name}'.")
-    print(f"If CI passes, Watchdog will automatically open a Pull Request into 'main'!")
+
+    # Step 9: Open the Pull Request into main right here in this job!
+    pr_title = f"fix(watchdog): Automated AI repair for run #{run_id}"
+    pr_body = (
+        f"## 🐕 AI-Powered Watchdog Auto-Repair\n\n"
+        f"### Summary\n"
+        f"- **Failed Run ID**: `#{run_id}`\n"
+        f"- **Diagnosis**: {summary}\n"
+        f"- **Repair Branch**: `{branch_name}`\n"
+        f"- **Validation**: ✅ Tests were executed and passed locally in the Watchdog runner.\n\n"
+        f"### What Happened\n"
+        f"1. A failure was detected in `Test Pipeline` on `main`.\n"
+        f"2. Watchdog automatically retriggered once to verify flakiness.\n"
+        f"3. When attempt 2 failed, DeepSeek AI analyzed the error logs and repository code.\n"
+        f"4. The AI fix was applied, validated against the test suite, committed to `{branch_name}`, and filed as this PR.\n\n"
+        f"*Ready for review and merge.*"
+    )
+    pr_url = create_pull_request(repo, branch_name, "main", pr_title, pr_body, headers)
+    if pr_url:
+        print(f"\n🎉 Everything completed in this Auto-Healer run! PR is ready: {pr_url}")
 
 
 if __name__ == "__main__":
