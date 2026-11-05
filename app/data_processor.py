@@ -4,8 +4,7 @@ def process_user_metrics(scores: list[int]) -> dict:
         return {"total": 0, "average": 0.0}
 
     total_score = sum(scores)
-    # Intentional bug for AI repair: undefined variable 'num_items' instead of len(scores)
-    average_score = total_score / num_items
+    average_score = total_score / len(scores)
 
     return {
         "total": total_score,
