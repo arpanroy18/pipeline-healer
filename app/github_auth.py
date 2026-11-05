@@ -52,3 +52,27 @@ async def get_installation_access_token(installation_id: int) -> str:
         expires_at = now + 3500
         _token_cache[installation_id] = (token, expires_at)
         return token
+
+
+async def get_repo_installation_id(owner: str, repo: str) -> int:
+    """
+    Auto-discover the installation ID for a given repository.
+    Calls GET /repos/{owner}/{repo}/installation using the App JWT.
+    """
+    app_jwt = generate_jwt()
+    headers = {
+        "Authorization": f"Bearer {app_jwt}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    url = f"https://api.github.com/repos/{owner}/{repo}/installation"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Failed to find installation for {owner}/{repo}: {response.status_code} - {response.text}"
+            )
+        data = response.json()
+        return data["id"]
+
