@@ -106,28 +106,40 @@ def run_validation_tests() -> Tuple[bool, str]:
     return True, "All validation checks passed."
 
 
-def wait_for_cloud_workflow(repo: str, branch_name: str, head_sha: str, headers: dict, timeout_seconds: int = 300) -> Tuple[bool, Optional[str]]:
+def trigger_workflow_on_branch(repo: str, branch_name: str, headers: dict) -> bool:
+    """Explicitly trigger Test Pipeline on the newly created repair branch."""
+    dispatch_url = f"https://api.github.com/repos/{repo}/actions/workflows/test-pipeline.yml/dispatches"
+    print(f"\n🚀 Explicitly triggering Test Pipeline on repair branch '{branch_name}'...")
+    try:
+        res = httpx.post(dispatch_url, headers=headers, json={"ref": branch_name})
+        if res.status_code == 204:
+            print(f"✅ Successfully launched Test Pipeline on '{branch_name}'!")
+            return True
+        else:
+            print(f"⚠️ Dispatch returned HTTP {res.status_code}: {res.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Failed to trigger workflow: {e}")
+        return False
+
+
+def wait_for_cloud_workflow(repo: str, branch_name: str, headers: dict, timeout_seconds: int = 180) -> Tuple[bool, Optional[str]]:
     """
-    Option B (Strict Cloud Wait):
-    Polls GitHub Actions API until the cloud workflow triggered on branch_name finishes
+    Waits and polls GitHub Actions until the Test Pipeline run on branch_name finishes
     with status: completed, conclusion: success.
     """
-    print(f"\n⏳ Option B Active: Waiting for GitHub Actions cloud run on '{branch_name}' (commit {head_sha[:7]})...")
+    print(f"\n⏳ Waiting for Test Pipeline to complete on '{branch_name}'...")
     start_time = time.time()
     seen_run_id = None
 
     while time.time() - start_time < timeout_seconds:
         try:
-            # Query runs for this commit SHA
-            url = f"https://api.github.com/repos/{repo}/actions/runs?head_sha={head_sha}"
+            # Query runs for this branch
+            url = f"https://api.github.com/repos/{repo}/actions/runs?branch={branch_name}"
             res = httpx.get(url, headers=headers)
             if res.status_code == 200:
                 runs = res.json().get("workflow_runs", [])
-                # Look for Test Pipeline run on the repair branch
-                matching_runs = [
-                    r for r in runs
-                    if r.get("head_branch") == branch_name and r.get("name") == "Test Pipeline"
-                ]
+                matching_runs = [r for r in runs if r.get("name") == "Test Pipeline"]
 
                 if matching_runs:
                     run_data = matching_runs[0]
@@ -138,21 +150,21 @@ def wait_for_cloud_workflow(repo: str, branch_name: str, head_sha: str, headers:
 
                     if status == "completed":
                         if conclusion == "success":
-                            print(f"✅ Cloud run #{seen_run_id} SUCCEEDED! ({html_url})")
+                            print(f"\n🎉 Test Pipeline on '{branch_name}' SUCCEEDED! ({html_url})")
                             return True, html_url
                         else:
-                            print(f"❌ Cloud run #{seen_run_id} FAILED with conclusion: {conclusion} ({html_url})")
+                            print(f"\n❌ Test Pipeline on '{branch_name}' FAILED with conclusion: {conclusion} ({html_url})")
                             return False, html_url
                     else:
-                        print(f"🔄 Cloud run #{seen_run_id} is currently '{status}'... waiting 10s")
+                        print(f"🔄 Test Pipeline #{seen_run_id} on '{branch_name}' is currently '{status}'... (waiting 5s)")
                 else:
-                    print("⌛ Waiting for GitHub to register the cloud run for this push...")
+                    print("⌛ Waiting for GitHub to start the workflow run on the repair branch...")
         except Exception as e:
             print(f"⚠️ Error while polling cloud run: {e}")
 
-        time.sleep(10)
+        time.sleep(5)
 
-    print(f"❌ Timed out after {timeout_seconds}s waiting for cloud workflow to finish.")
+    print(f"❌ Timed out after {timeout_seconds}s waiting for Test Pipeline to finish.")
     return False, None
 
 
@@ -276,15 +288,17 @@ def main():
 
     # Step 8: Commit and push the verified fix to the repair branch
     commit_and_push_fix(branch_name, summary, token, repo, title=failed_job_name)
-    pushed_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
-    # Step 9: Option B (Strict Cloud Wait): Wait for GitHub Actions cloud run to finish with success!
-    cloud_success, cloud_url = wait_for_cloud_workflow(repo, branch_name, pushed_sha, headers)
+    # Step 9: Explicitly launch Test Pipeline on the newly pushed repair branch!
+    trigger_workflow_on_branch(repo, branch_name, headers)
+
+    # Step 10: Wait for Test Pipeline on the repair branch to finish with SUCCESS!
+    cloud_success, cloud_url = wait_for_cloud_workflow(repo, branch_name, headers)
     if not cloud_success:
         print("\n❌ Aborting Pull Request creation: The cloud workflow run did not succeed.")
         sys.exit(1)
 
-    # Step 10: Open the Pull Request into main ONLY after cloud run passed!
+    # Step 11: Open the Pull Request into main ONLY after cloud run passed!
     pr_title = failed_job_name
     pr_body = (
         f"## 🐕 AI-Powered Watchdog Auto-Repair\n\n"
