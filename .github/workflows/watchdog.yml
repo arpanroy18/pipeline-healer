@@ -5,6 +5,8 @@ on:
     workflows: ["Test Pipeline"]
     types:
       - completed
+    branches:
+      - main
 
 permissions:
   actions: write

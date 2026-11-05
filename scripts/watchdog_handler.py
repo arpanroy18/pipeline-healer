@@ -126,7 +126,7 @@ def wait_for_cloud_workflow(repo: str, branch_name: str, head_sha: str, headers:
                 # Look for Test Pipeline run on the repair branch
                 matching_runs = [
                     r for r in runs
-                    if r.get("head_branch") == branch_name or r.get("name") == "Test Pipeline"
+                    if r.get("head_branch") == branch_name and r.get("name") == "Test Pipeline"
                 ]
 
                 if matching_runs:
@@ -247,15 +247,11 @@ def main():
     branch_name = generate_branch_name(failed_job_name)
     print(f"🌿 Repair branch: {branch_name}")
 
-    # Step 3: Create remote branch if it doesn't exist
-    create_branch_ref(repo, branch_name, head_sha, headers)
+    # Step 3: Create and switch to the local repair branch in this runner
+    print(f"Creating local repair branch '{branch_name}'...")
+    subprocess.run(["git", "checkout", "-b", branch_name], check=True)
 
-    # Step 4: Fetch and switch to the repair branch locally
-    print(f"Checking out repair branch '{branch_name}'...")
-    subprocess.run(["git", "fetch", "origin", f"{branch_name}:{branch_name}"], check=False)
-    subprocess.run(["git", "checkout", branch_name], check=True)
-
-    # Step 5: Gather repository context
+    # Step 4: Gather repository context
     context = get_repo_context()
 
     # Step 6: Diagnose with DeepSeek AI
