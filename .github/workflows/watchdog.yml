@@ -9,15 +9,18 @@ on:
 permissions:
   actions: write
   contents: write
+  pull-requests: write
 
 jobs:
   heal:
     name: Watchdog Auto-Healer
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    if: ${{ github.event.workflow_run.conclusion == 'failure' || (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'watchdog/')) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,10 +34,13 @@ jobs:
       - name: Run Watchdog Handler
         env:
           GH_TOKEN: ${{ secrets.WATCHDOG_TOKEN || secrets.GITHUB_TOKEN }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
           FAILED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           REPO: ${{ github.repository }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           python scripts/watchdog_handler.py

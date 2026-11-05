@@ -54,4 +54,10 @@ jobs:
             exit 1
           fi
 
+          # 4. Run automated test suite
+          if [ -d "tests" ]; then
+            echo "Running Python test suite..."
+            python -m unittest discover tests
+          fi
+
           echo "✅ All checks passed successfully!"
