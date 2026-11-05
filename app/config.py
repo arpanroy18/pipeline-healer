@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     GITHUB_APP_PRIVATE_KEY: Optional[str] = None
     GITHUB_WEBHOOK_SECRET: Optional[str] = None
 
+    # Target repository defaults (can be overridden via webhook payloads)
+    TARGET_REPO_OWNER: str = "arpanroy18"
+    TARGET_REPO_NAME: str = "pipeline-healer"
+
     # Server settings
     HOST: str = "0.0.0.0"
     PORT: int = 8000
