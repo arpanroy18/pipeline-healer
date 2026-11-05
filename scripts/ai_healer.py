@@ -227,7 +227,7 @@ def apply_edits(edits: List[Dict[str, Any]]) -> List[str]:
     return modified_paths
 
 
-def commit_and_push_fix(branch_name: str, summary: str, token: str, repo: str) -> bool:
+def commit_and_push_fix(branch_name: str, summary: str, token: str, repo: str, title: Optional[str] = None) -> bool:
     """Commit changes to the local branch and push to GitHub."""
     try:
         status_out = subprocess.check_output(["git", "status", "--porcelain"], text=True)
@@ -241,7 +241,8 @@ def commit_and_push_fix(branch_name: str, summary: str, token: str, repo: str) -
         subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
 
         subprocess.run(["git", "add", "-A"], check=True)
-        commit_msg = f"fix(watchdog): autonomous AI repair\n\n{summary}"
+        commit_header = title or "fix(watchdog): autonomous AI repair"
+        commit_msg = f"{commit_header}\n\n{summary}"
         subprocess.run(["git", "commit", "-m", commit_msg], check=True)
 
         remote_url = f"https://x-access-token:{token}@github.com/{repo}.git"

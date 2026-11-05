@@ -228,10 +228,10 @@ def main():
     print("\n✅ Local validation passed! All tests succeeded on the repaired code.")
 
     # Step 8: Commit and push the verified fix to the repair branch
-    commit_and_push_fix(branch_name, summary, token, repo)
+    commit_and_push_fix(branch_name, summary, token, repo, title=failed_job_name)
 
     # Step 9: Open the Pull Request into main right here in this job!
-    pr_title = f"fix(watchdog): Automated AI repair for run #{run_id}"
+    pr_title = failed_job_name
     pr_body = (
         f"## 🐕 AI-Powered Watchdog Auto-Repair\n\n"
         f"### Summary\n"
