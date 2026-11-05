@@ -77,22 +77,19 @@ async def poll_watchdog(
 
                     if run_attempt == 1:
                         logger.info(
-                            "🚨 Failure detected on %s (run #%s, attempt 1). Action: Rerunning and creating repair branch...",
+                            "🚨 Failure detected on %s (run #%s, attempt 1). Action: Retriggering workflow run once...",
                             head_branch, run_id
                         )
                         handled_runs.add(state_key)
-
-                        # 1. Rerun failed workflow
                         await client.rerun_workflow_run(owner, repo, run_id)
-
-                        # 2. Create watchdog branch
-                        branch_name = f"watchdog/fix-run-{run_id}"
-                        await client.create_branch(owner, repo, branch_name, head_sha)
                     else:
                         logger.info(
-                            "Workflow run %s failed on attempt %s. Ready for AI diagnosis in next phase.",
+                            "🚨 Workflow run %s failed again on attempt %s. Action: Creating watchdog repair branch...",
                             run_id, run_attempt
                         )
+                        handled_runs.add(state_key)
+                        branch_name = f"watchdog/fix-run-{run_id}"
+                        await client.create_branch(owner, repo, branch_name, head_sha)
                         handled_runs.add(state_key)
 
         except Exception as e:

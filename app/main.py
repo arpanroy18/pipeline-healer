@@ -95,35 +95,31 @@ async def handle_webhook(
                     "branch": head_branch,
                 }
 
-            # If attempt 1: Trigger rerun and create a watchdog branch
+            # Stage 1 (Attempt 1): Trigger rerun only (do NOT create branch yet)
             if run_attempt == 1:
                 logger.info(
-                    "First failure detected for run %s on branch '%s'. Triggering rerun and creating watchdog branch...",
+                    "First failure detected for run %s on branch '%s'. Retriggering workflow once...",
                     run_id, head_branch
                 )
-
-                # 1. Rerun the failed workflow
                 rerun_ok = await client.rerun_workflow_run(owner, repo_name, run_id)
-
-                # 2. Create branch called watchdog/<name>
-                branch_name = f"watchdog/fix-run-{run_id}"
-                branch_res = await client.create_branch(owner, repo_name, branch_name, head_sha)
-
                 return {
-                    "status": "handled_attempt_1",
+                    "status": "retriggered_attempt_1",
                     "run_id": run_id,
                     "rerun_triggered": rerun_ok,
-                    "branch_created": branch_name if branch_res else "already_exists_or_failed",
                 }
+            # Stage 2 (Attempt >= 2): Retry failed again! Now create repair branch
             else:
                 logger.info(
-                    "Workflow run %s failed on attempt %s. Ready for AI diagnostic/healing in upcoming phase.",
+                    "Workflow run %s failed on attempt %s. Creating watchdog repair branch...",
                     run_id, run_attempt
                 )
+                branch_name = f"watchdog/fix-run-{run_id}"
+                branch_res = await client.create_branch(owner, repo_name, branch_name, head_sha)
                 return {
-                    "status": "ready_for_ai_diagnosis",
+                    "status": "repair_branch_created",
                     "run_id": run_id,
                     "attempt": run_attempt,
+                    "branch_created": branch_name if branch_res else "already_exists",
                 }
 
     return {"status": "ignored", "event": x_github_event}
