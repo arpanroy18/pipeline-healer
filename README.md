@@ -4,6 +4,53 @@ An autonomous CI/CD self-healing watchdog for GitHub Actions. When a workflow fa
 
 ---
 
+## 📐 System Architecture Diagram
+
+```mermaid
+flowchart TD
+    subgraph S1["1. CI Execution & Failure Detection"]
+        Push["Developer Push / PR on main"] --> CI["Test Pipeline on main"]
+        CI -->|Tests Pass| PassGreen["CI Success ✅"]
+        CI -->|Tests Fail| Fail1["Pipeline Fails ❌"]
+        Fail1 --> WFRun["GitHub triggers workflow_run: completed"]
+    end
+
+    subgraph S2["2. Watchdog Flakiness Filter"]
+        WFRun --> Watchdog["Watchdog Auto-Healer"]
+        Watchdog --> CheckAttempt{"Check Run Attempt"}
+        CheckAttempt -->|Attempt == 1| RerunAPI["GitHub API: POST /actions/runs/id/rerun"]
+        RerunAPI -->|Auto-Retry to filter flakiness| CI
+        CheckAttempt -->|Attempt >= 2| ConfirmedFail["Confirmed Persistent Failure (Not Flaky)"]
+    end
+
+    subgraph S3["3. Autonomous AI Healing Engine"]
+        ConfirmedFail --> FetchLogs["Fetch Terminal Error Logs via GitHub API"]
+        FetchLogs --> RepoContext["Gather Repository Code Context"]
+        RepoContext --> AI["DeepSeek AI (deepseek-chat)"]
+        AI --> Diagnosis["Analyze Traceback & Generate Exact Code Edits"]
+        Diagnosis --> ApplyLocal["Apply File Edits in Runner Workspace"]
+        ApplyLocal --> LocalTest["Run Local Validation Suite (unittest)"]
+        LocalTest -->|Fails| AbortLocal["Abort (Prevent pushing broken code)"]
+    end
+
+    subgraph S4["4. Cloud Verification & Pull Request"]
+        LocalTest -->|Passes| GitPush["Commit & Push to fix/job-name-timestamp_est"]
+        GitPush --> Dispatch["GitHub API: workflow_dispatch on repair branch"]
+        Dispatch --> CloudPoll["Poll GitHub Actions API until Completed"]
+        CloudPoll --> CloudSuccess{"Cloud Test Status?"}
+        CloudSuccess -->|Failure| AbortCloud["Abort PR (Unverified fix)"]
+        CloudSuccess -->|Success| OpenPR["GitHub API: Open Pull Request into main"]
+        OpenPR --> PRGreen["Pull Request Ready for Review & Merge 🎉"]
+    end
+
+    style PassGreen fill:#d4edda,stroke:#28a745,stroke-width:2px;
+    style Fail1 fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
+    style AI fill:#e8f4fd,stroke:#0969da,stroke-width:2px;
+    style PRGreen fill:#d1e7dd,stroke:#198754,stroke-width:2px;
+```
+
+---
+
 ## 🏗️ How It Works (The 4-Step Loop)
 
 ```
