@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict, Optional
 import httpx
+from app.config import settings
 from app.github_auth import get_installation_access_token
 
 logger = logging.getLogger(__name__)
@@ -9,16 +10,41 @@ GITHUB_API_BASE = "https://api.github.com"
 
 
 class GitHubClient:
-    def __init__(self, installation_id: int):
+    def __init__(self, installation_id: Optional[int] = None):
         self.installation_id = installation_id
 
     async def _headers(self) -> Dict[str, str]:
-        token = await get_installation_access_token(self.installation_id)
+        if settings.GITHUB_TOKEN:
+            token = settings.GITHUB_TOKEN
+        elif self.installation_id:
+            token = await get_installation_access_token(self.installation_id)
+        else:
+            raise ValueError("Neither GITHUB_TOKEN nor GitHub App installation_id is available.")
+
         return {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+
+    async def list_workflow_runs(self, owner: str, repo: str, per_page: int = 10) -> list[Dict[str, Any]]:
+        """
+        List recent workflow runs for the repository.
+        Endpoint: GET /repos/{owner}/{repo}/actions/runs
+        """
+        headers = await self._headers()
+        url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/actions/runs?per_page={per_page}"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("workflow_runs", [])
+            logger.error(
+                "Failed to list workflow runs for %s/%s: %s %s",
+                owner, repo, response.status_code, response.text
+            )
+            return []
 
     async def rerun_workflow_run(self, owner: str, repo: str, run_id: int) -> bool:
         """

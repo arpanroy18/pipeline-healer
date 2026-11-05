@@ -4,7 +4,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # GitHub App Credentials
+    # GitHub Credentials
+    # Option A: Personal Access Token (simplest for enterprise / single repo)
+    GITHUB_TOKEN: Optional[str] = None
+
+    # Option B: GitHub App Credentials (if using GitHub App)
     GITHUB_APP_ID: str = ""
     GITHUB_APP_PRIVATE_KEY_PATH: Optional[str] = None
     GITHUB_APP_PRIVATE_KEY: Optional[str] = None
