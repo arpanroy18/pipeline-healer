@@ -1,0 +1,57 @@
+name: Test Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - 'watchdog/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      should_fail:
+        description: 'Force this workflow run to fail'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    name: Run Unit Tests & Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Test Suite
+        run: |
+          echo "=========================================="
+          echo "Running Test Pipeline Check..."
+          echo "=========================================="
+
+          # 1. Check if manually dispatched with should_fail=true
+          if [ "${{ github.event.inputs.should_fail }}" = "true" ]; then
+            echo "❌ FAILED: 'should_fail' manual trigger option was set to true."
+            exit 1
+          fi
+
+          # 2. Check if .fail_ci trigger file exists
+          if [ -f ".fail_ci" ]; then
+            echo "❌ FAILED: Found .fail_ci trigger file in repository."
+            exit 1
+          fi
+
+          # 3. Check if commit message contains [fail]
+          COMMIT_MSG=$(git log -1 --pretty=%B || true)
+          if echo "$COMMIT_MSG" | grep -qi "\[fail\]"; then
+            echo "❌ FAILED: Commit message contains '[fail]' flag."
+            exit 1
+          fi
+
+          echo "✅ All checks passed successfully!"
