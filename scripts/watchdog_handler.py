@@ -1,9 +1,20 @@
 import os
+from pathlib import Path
 import subprocess
 import sys
 from typing import Optional
+
+# Ensure repository root and script directory are in sys.path
+repo_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(repo_root))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import httpx
-from scripts.ai_healer import apply_edits, commit_and_push_fix, diagnose_and_fix, fetch_failed_logs, get_repo_context
+
+try:
+    from scripts.ai_healer import apply_edits, commit_and_push_fix, diagnose_and_fix, fetch_failed_logs, get_repo_context
+except ImportError:
+    from ai_healer import apply_edits, commit_and_push_fix, diagnose_and_fix, fetch_failed_logs, get_repo_context
 
 
 def get_headers(token: str) -> dict:

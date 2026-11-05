@@ -33,6 +33,7 @@ jobs:
 
       - name: Run Watchdog Handler
         env:
+          PYTHONPATH: .
           GH_TOKEN: ${{ secrets.WATCHDOG_TOKEN || secrets.GITHUB_TOKEN }}
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
